@@ -1,0 +1,1 @@
+### This directory contains the data to process the dense and dilute concentrations of protein complexes from slab simulations.
