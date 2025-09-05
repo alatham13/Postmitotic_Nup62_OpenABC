@@ -15,6 +15,7 @@ _Requirements_:
 - openmm (version 7.5.1 was used, requires < 7.6)
 - MDanalysis (version 2.4.3 was used)
 - MDtraj (version 1.9.7 was used)
+- openmm-plumed (version 1.0 was used)
 - Hardware: simulations were run on A40 GPUs and took up to 11 days. OpenMM allows for simulations in CPU, CUDA, or OpenCL platforms, although performance may vary on other platforms.
 
 _Installation_:
