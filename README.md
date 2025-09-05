@@ -5,9 +5,7 @@ Code for modeling of protein condensates in OpenABC, https://github.com/ZhangGro
 
 _Author(s)_: Andrew Latham
 
-_License_: [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/legalcode).
-This work is freely available under the terms of the Creative Commons
-Attribution-ShareAlike 4.0 International License.
+_License_: MIT License
 
 _Publications_:
 - W Zhang, et al., Phase-separating nucleoporins are required for dilating nuclear membrane pores into selective transport channels after mitosis
