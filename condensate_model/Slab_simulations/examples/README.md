@@ -1,6 +1,6 @@
 ### This directory contains the inputs for running slab simulations of various Nups.
 
-### These simulations are done in 4 steps:
+### These simulations are done in 4 steps (Note, simulations can take up to 11 days to run on one A40 GPU):
 
 1. To NPT equilibration simulations:
 - python run_npt.py
