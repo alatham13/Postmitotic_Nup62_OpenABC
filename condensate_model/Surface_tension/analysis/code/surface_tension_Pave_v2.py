@@ -1,4 +1,4 @@
-# Function to write a gro file of the last simulation frame. Centers the largest protein cluster in the simulation box.
+# Function to calculate surface tension from constant volume simulations, using the Laplace pressure.
 # Written by Andrew Latham
 # Note the inputs at top. These need to be customized for the system.
 # Here, we assume 100 molecules, with 2000 equilibration frames, and a residue-by-residue cutoff of 10 Ang
@@ -12,9 +12,11 @@ import os
 import math
 import numpy
 import MDAnalysis as mda
-from MDAnalysis import transformations
 from MDAnalysis.lib.distances import distance_array
+from scipy.optimize import curve_fit
+from scipy.special import erf
 import xml.etree.ElementTree as ET
+import pandas as pd
 
 # Inputs
 # dcd file used to run the simulation
@@ -26,8 +28,7 @@ SYSTEM=sys.argv[1]
 # number of protein chains in the simulation box
 nchain=32
 # number of equilibration frames
-eq=9999
-#eq=10000
+eq=5000
 # distance cutoff
 cut=10
 
@@ -64,29 +65,6 @@ def wrap_coord(pos,side):
     while pos>side/2:
         pos=pos-side
     return pos
-
-def wrap_coord_Z(ts,box,nchain,pos_com,XYZ=2):
-    N = ts.n_atoms
-    atoms_chain = int(N / nchain)
-    print('Number of atoms per chain:')
-    print(atoms_chain)
-    # translate1 - places center of mass of largest cluster at 0
-    for i in range(0,nchain):
-        ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ]=ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ]-pos_com
-        COG_pos=numpy.mean(ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ])
-        while COG_pos<0:
-            # update atom positions
-            ts.positions[i*atoms_chain:(i+1)*atoms_chain, XYZ]=ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ]+box[XYZ]
-            # update COG positions
-            COG_pos=COG_pos+box[XYZ]
-        while COG_pos>box[XYZ]/2:
-            # update atom positions
-            ts.positions[i*atoms_chain:(i+1)*atoms_chain, XYZ]=ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ]-box[XYZ]
-            # update COG positions
-            COG_pos=COG_pos-box[XYZ]
-    # translate2 - shifts the entire simulation by box / 2 (thus, the largest cluster is now centered at box/2)
-    ts.positions[:, XYZ]=ts.positions[:,XYZ]+box[XYZ]/2
-    return ts
 
 # function to find the mass of particles from the system XML file
 def find_mass(xml_file):
@@ -128,6 +106,49 @@ def find_box(xml_file,find_z=False,default_Z=5000):
     box[5]=90
     return box
 
+# fits protein density to a sigmoidal function. Returns the radius of the droplet (R) in nm
+def fit_droplet_density(dat, cluster_size, output_file='dist_from_center_fitted_Pave.txt'):
+
+    # define the sigmoidal function for fitting
+    def func(x, B, A, R, W):
+        c=B-A*erf( ((x-R) / (numpy.sqrt(2)*W)) )
+        return c
+
+    # Load density. Split into radius / density
+    radius=dat[:,0]/10
+    density=dat[:,1]
+    # Correct radius to start / end at the middle of the bin instead of the beginning / end. (was adjusted for plotting
+    dR = (radius[2] - radius[1])
+    radius[0]=radius[0]+dR/2
+    radius[len(radius)-1]=radius[len(radius)-1]-dR/2
+    # Normalize density
+    sim_length=cluster_size.shape[0]
+    density=density/sim_length
+    for i in range(len(density)):
+        r1=(i+1)*dR
+        V1=(4/3) * numpy.pi * (r1 ** 3)
+        r2 = (i) * dR
+        V2 = (4 / 3) * numpy.pi * (r2 ** 3)
+        dV = (V1-V2)/(10**(21))
+        density[i]=density[i]*1.6605*10**(-21)
+        density[i]=density[i]/dV
+    # Fit data using curve_fit
+    popt,pcov=curve_fit(func,radius,density)
+    print('Check covariance:')
+    print(pcov)
+    # plot the fit. Save the radius. Shift the radius back, then apply fit
+    radius[0]=radius[0]-dR/2
+    radius[len(radius)-1]=radius[len(radius)-1]+dR/2
+    check=func(radius,*popt)
+    # Save an array with 3 data points: 1) the radius, 2) the simulated density, 3) the fitted density
+    to_save=numpy.asarray([radius,density,check])
+    to_save=to_save.transpose()
+    # header has the input parameters:
+    explination='Fit to erf function with parameters: B='+str(popt[0])+' A='+str(popt[1])+' R='+str(popt[2])+' W='+str(popt[3])+' '
+    # numpy.savetxt(output_file, to_save, header=explination)
+
+    return popt[2]
+
 
 def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
     u1 = mda.Universe(pdb_file,dcd_file)
@@ -153,13 +174,17 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
     count=0
     path_tot_timestep = []
     cluster_size = numpy.zeros((timesteps, 4))
+    X_pos = numpy.zeros((N,timesteps))
+    Y_pos = numpy.zeros((N,timesteps))
+    Z_pos = numpy.zeros((N,timesteps))
+    overall_pos = numpy.zeros((N,timesteps))
 
 
     for ts in u1.trajectory:
+        print('frame: ' + str(ts.frame))
         if ts.frame < start:
             pass
         else:
-            print('frame: ' + str(ts.frame))
             com = numpy.zeros((nchain, 3))
             print(box)
             mass = numpy.zeros((nchain, 1))
@@ -241,6 +266,7 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
             comZ2 = (mass[:, 0] / mass_tot) * numpy.cos((com[:, 2] / box[2]) * 2 * numpy.pi)
             comZ3 = (mass[:, 0] / mass_tot) * numpy.sin((com[:, 2] / box[2]) * 2 * numpy.pi)
 
+
             # Calculate COM of cluster. Use angles to avoid issues with periodicity
             X1 = 0
             X2 = 0
@@ -249,11 +275,11 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
             Z1 = 0
             Z2 = 0
             # l_list: list of cluster sizes
-            l_list = numpy.asarray(l_list)
+            l_list=numpy.asarray(l_list)
             l_list[::-1].sort()
             l_list.resize((4))
-            cluster_size[count, :] = l_list
-            print(cluster_size[count, :])
+            cluster_size[count,:]=l_list
+            print(cluster_size[count,:])
             for i in range(0, l2):
                 index = atoms_in_cluser[i]
                 # X ----------------------------------------------------------------------------
@@ -281,34 +307,180 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
             thetaZ = numpy.arctan2(-1 * Z2, -1 * Z1) + numpy.pi
             Z_com = (box[2] / (2 * numpy.pi)) * thetaZ
 
+
+            #calculate wrapped list of atomistic distances to the largest cluster
+            for i in range(0,N):
+                atom = u1.atoms[i]
+                # X ----------------------------------------------------------------------------
+                X = atom.position[0]
+                X_diff = X - X_com
+                X_final = wrap_coord(X_diff, box[0])
+                X_pos[i, count] = X_final
+                # Z ----------------------------------------------------------------------------
+                Y = atom.position[1]
+                Y_diff = Y - Y_com
+                Y_final = wrap_coord(Y_diff, box[1])
+                Y_pos[i, count] = Y_final
+                # Z ----------------------------------------------------------------------------
+                Z = atom.position[2]
+                Z_diff=Z-Z_com
+                Z_final = wrap_coord(Z_diff, box[2])
+                Z_pos[i,count]=Z_final
+                # overall
+                overall_pos[i,count]=numpy.sqrt(X_final**2+Y_final**2+Z_final**2)
+
             count = count + 1
 
-    for ts in u1.trajectory:
-        if ts.frame < start:
-            pass
-        else:
-            print('frame: ' + str(ts.frame))
-            print('Writing gro file...')
-            # Add box dimensions to the universe before writing
-            transform = transformations.boxdimensions.set_dimensions(box)
-            u1.trajectory.add_transformations(transform)
-            # Wrap Z-coordinate according to the COM of the box
-            ts = wrap_coord_Z(ts, box, nchain, X_com,XYZ=0)
-            ts = wrap_coord_Z(ts, box, nchain, Y_com,XYZ=1)
-            ts = wrap_coord_Z(ts, box, nchain, Z_com)
-            # write an output of the condensate final timestep, which is now centered at the largest cluster
-            final = u1.select_atoms("all")
-            with mda.Writer("final.gro") as gro:
-                gro.write(final)
-            print('Done.')
+    """# calculate the protein density as a function of X-position
+    nbins = 100
+    maxX = box[0] / 2
+    minX = -1 * box[0] / 2
+    dX = (maxX - minX) / nbins
+    Xhist = numpy.zeros((nbins, 2))
+    # set X-axis
+    for i in range(0, nbins):
+        Xhist[i, 0] = minX + dX * i + dX / 2
+    Xhist[0, 0] = Xhist[0, 0] - dX / 2
+    Xhist[nbins - 1, 0] = Xhist[nbins - 1, 0] + dX / 2
+    # calculate Xhistogram of atomic masses
+    for i in range(0, N):
+        for j in range(0, count):
+            bin = int((X_pos[i, j] - minX) / dX)
+            # atoms in protein
+            Xhist[bin, 1] = Xhist[bin, 1] + u1.atoms.masses[i]
 
-    return
+    # calculate the protein density as a function of Y-position
+    nbins = 100
+    maxY = box[1] / 2
+    minY = -1 * box[1] / 2
+    dY = (maxY - minY) / nbins
+    Yhist = numpy.zeros((nbins, 2))
+    # set Y-aYis
+    for i in range(0, nbins):
+        Yhist[i, 0] = minY + dY * i + dY / 2
+    Yhist[0, 0] = Yhist[0, 0] - dY / 2
+    Yhist[nbins - 1, 0] = Yhist[nbins - 1, 0] + dY / 2
+    # calculate Yhistogram of atomic masses
+    for i in range(0, N):
+        for j in range(0, count):
+            bin = int((Y_pos[i, j] - minY) / dY)
+            # atoms in protein
+            Yhist[bin, 1] = Yhist[bin, 1] + u1.atoms.masses[i]
+
+    # calculate the protein density as a function of Z-position
+    nbins = 100
+    maxZ = box[2] / 2
+    minZ = -1 * box[2] / 2
+    dZ = (maxZ - minZ) / nbins
+    Zhist = numpy.zeros((nbins, 2))
+    # set Z-axis
+    for i in range(0, nbins):
+        Zhist[i, 0] = minZ + dZ * i + dZ / 2
+    Zhist[0, 0] = Zhist[0, 0] - dZ / 2
+    Zhist[nbins - 1, 0] = Zhist[nbins - 1, 0] + dZ / 2
+    # calculate Zhistogram of atomic masses
+    for i in range(0, N):
+        for j in range(0, count):
+            bin = int((Z_pos[i, j] - minZ) / dZ)
+            # atoms in protein
+            Zhist[bin, 1] = Zhist[bin, 1] + u1.atoms.masses[i]"""
+
+    # calculate the protein density as a function of Overall-distance
+    nbins = 100
+    maxO = numpy.sqrt(box[0] ** 2 + box[1] ** 2 + box[2] ** 2) / 2
+    minO = 0
+    dO = (maxO - minO) / nbins
+    Ohist = numpy.zeros((nbins, 2))
+    # set O-axis
+    for i in range(0, nbins):
+        Ohist[i, 0] = minO + dO * i + dO / 2
+    Ohist[0, 0] = Ohist[0, 0] - dO / 2
+    Ohist[nbins - 1, 0] = Ohist[nbins - 1, 0] + dO / 2
+    # calculate Ohistogram of atomic masses
+    for i in range(0, N):
+        for j in range(0, count):
+            bin = int((overall_pos[i, j] - minO) / dO)
+            # atoms in protein
+            Ohist[bin, 1] = Ohist[bin, 1] + u1.atoms.masses[i]
+
+    # Header for output file
+    key_string = '\tr\t\t\tProtein'
+
+
+    #return cluster_size,Xhist,Yhist,Zhist,Ohist,key_string
+    return cluster_size, Ohist, key_string
+
+# Checks csv file for repeated timesteps. Returns data frame without repeated timesteps, and after prev_time
+def check_csv(csv_file,prev_time):
+    dat=pd.read_csv(csv_file)
+    dat_dict=[]
+    # Make small perturbation to not skip the first time
+    prev_time=prev_time
+    count=0
+    for i in range(len(dat)):
+        time=numpy.round(dat['Time (ps)'][i])
+        if time>prev_time:
+            row_dict=dat.iloc[i].to_dict()
+            row_dict['Time (ps)']=time # reset time to account for rounding when dropping duplicates
+            dat_dict.append(row_dict)
+            count+=1
+    dat2=pd.DataFrame(dat_dict)
+    dat2=dat2.drop_duplicates('Time (ps)',keep='last',ignore_index=True)
+    print(f'Unique steps: {len(dat2)}')
+    return dat2
+
+"""def check_csv(csv_file,prev_time):
+    dat=pd.read_csv(csv_file)
+    dat_dict=[]
+    # Make small perturbation to not skip the first time
+    prev_time=prev_time
+    count=0
+    for i in range(len(dat)):
+        time=numpy.round(dat['Time (ps)'][i])
+        if time>prev_time:
+            prev_time=time
+            row_dict=dat.iloc[i].to_dict()
+            dat_dict.append(row_dict)
+            count+=1
+    print(f'Unique steps: {count}')
+    dat2=pd.DataFrame(dat_dict)
+    return dat2"""
+
+
+# Function to calulate surface tension from the Young-Laplace equation. Uses the average droplet volume and average pressure
+# Note: dt is the difference between the output of each simulation frame and each csv frame. (1000 for our simulations)
+def calc_surf_tension(_droplet_R,_droplet_V,csv_file,start,dt=1000):
+    # load data frame, skipping equilibrium steps
+    new_dat=check_csv(csv_file,start*dt)
+    P_timestep=new_dat['Pressure (bar)'][:]
+    V_timestep=new_dat['Box Volume (nm^3)'][:]
+    # get average volume / pressure
+    P_box=numpy.mean(P_timestep)
+    V_box=numpy.mean(V_timestep)
+    # adjust pressure for arbitrary box size
+    P_laplace=P_box*(V_box/_droplet_V)
+    # use Young-Laplace equation to solve for surface tension
+    surf_tens1=_droplet_R*P_laplace/2 # Returns surface tension in bar * nm
+    # convert units to nN / microm
+    surf_tens2=0.1*surf_tens1
+    return surf_tens2
+    
 
 
 
-contact_mat(DCD,PDB,SYSTEM,nchain,eq,cut)
+# calculate density distribution
+cluster_size,dist,key_string=contact_mat(DCD,PDB,SYSTEM,nchain,eq,cut)
+# Fit the droplet density, calculate R
+droplet_R=fit_droplet_density(dist,cluster_size)
+droplet_V=(4/3)*numpy.pi*droplet_R**3
+print(f'Droplet R: {droplet_R}')
+print(f'Droplet V: {droplet_V}')
+# caluclate surface tension based on droplet R, droplet V, and csv file from simulation
+CSV='pressure.csv'
+st=calc_surf_tension(droplet_R,droplet_V,CSV,eq)
+numpy.savetxt('surface_tension_Pave_v2.txt',numpy.asarray([st]),header='Surface tension from average pressure (nN / microm):')
 
-# Standard outputs. Kept for debugging
-#numpy.savetxt('cluster_size_mindist.txt',cluster_size)
-#numpy.savetxt('protein_hist_mindist.txt',hist,header=key_string)
+
+
+
 

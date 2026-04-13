@@ -10,7 +10,4 @@ To continue unfinished simulations:
 To analyze simulations (where XXX is the name of the system):
 - python ../analysis/code/write_final_box.py XXX.xml
 - python ../analysis/code/cluster_FG_box_mindist.py XXX.xml
-- python ../analysis/code/surface_tension_Pave_v2.py XXX.xml
-- python ../analysis/code/Rg_box.py XXX.xml
-- python ../analysis/code/OD_vs_IDR.py XXX.xml
-- python ../analysis/code/contact_map_FG_box.py XXX.xml
+- python ../analysis/code/surface_tension.py XXX.xml

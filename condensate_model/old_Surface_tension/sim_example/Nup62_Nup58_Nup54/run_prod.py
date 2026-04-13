@@ -11,7 +11,6 @@ sys.path.insert(0, "~/Postmitotic_Nup62_OpenABC")
 from openabc2.forcefields.parsers import MOFFParser, MRGdsDNAParser
 from openabc2.forcefields import MOFFMRGModel
 from openabc2.utils.insert import insert_molecules
-from openabc2.utils.pressure_reporter import StateDataReporter  
 
 tot_t=1000000000
 dt=100000
@@ -127,8 +126,7 @@ output_dcd = 'prod.dcd'
 # Run short simulation
 condensate.add_reporters(output_interval, output_dcd)
 condensate.simulation.reporters.append(app.checkpointreporter.CheckpointReporter('prod.cpt',output_interval))
-condensate.simulation.reporters.append(StateDataReporter('prod.csv', int(dt), step=True, time=True, potentialEnergy=True, kineticEnergy=True, temperature=True, volume=True, density=True, speed=True, pressure=True))
-condensate.simulation.reporters.append(StateDataReporter('pressure.csv', int(dt/1000), step=True, time=True, potentialEnergy=True, kineticEnergy=True, temperature=True, volume=True, density=True, speed=True, pressure=True))
+condensate.simulation.reporters.append(app.StateDataReporter('prod.csv', output_interval, step=True, potentialEnergy=True, temperature=True, volume=True, density=True, speed=True, time=True))
 condensate.simulation.context.setVelocitiesToTemperature(temperature)
 condensate.simulation.step(tot_t)
 

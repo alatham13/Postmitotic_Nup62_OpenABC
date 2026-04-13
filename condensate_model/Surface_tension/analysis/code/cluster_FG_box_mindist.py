@@ -1,11 +1,11 @@
-# Function to calculate density and cluster size from constant concentration simulations
+# Function to calculate density and cluster size from slab simulations
 # Written by Andrew Latham
 # Note the inputs at top. These need to be customized for the system.
-# Here, we assume 32 molecules, with 9999 equilibration frames (i.e. 10000 total frames), and a minimum distance cutoff of 10 Ang
+# Here, we assume 100 molecules, with 2000 equilibration frames, and a COM cutoff of 80 Ang
 
 # Output files:
-# cluster_size_mindist.txt - size of the largest 4 clusters, in number of molecules
-# dist_from_center.txt - histogram of radial protein density, centered at the largest cluster
+# cluster_size.txt - size of the largest 4 clusters, in number of molecules
+# protein_hist.txt - histogram of protein density, centered at the largest cluster
 
 import sys
 import os
@@ -285,7 +285,6 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
 
             count = count + 1
 
-    # Calculate density in X, Y, and Z separately, for debugging
     """# calculate the protein density as a function of X-position
     nbins = 100
     maxX = box[0] / 2

@@ -1,11 +1,10 @@
-# Function to write a gro file of the last simulation frame. Centers the largest protein cluster in the simulation box.
+# Function to write a .gro file (final.gro) of the last frame of a simulation, centered at the largest cluster. Centers the cluster in X, Y, and Z.
 # Written by Andrew Latham
 # Note the inputs at top. These need to be customized for the system.
-# Here, we assume 100 molecules, with 2000 equilibration frames, and a residue-by-residue cutoff of 10 Ang
+# Here, we assume 32 molecules, with 9999 equilibration frames (i.e. 10000 total frames), and a minimum distance cutoff of 10 Ang
 
 # Output files:
-# cluster_size.txt - size of the largest 4 clusters, in number of molecules
-# protein_hist.txt - histogram of protein density, centered at the largest cluster
+# final.gro - structure file for the last frame of the simulation
 
 import sys
 import os
@@ -27,7 +26,6 @@ SYSTEM=sys.argv[1]
 nchain=32
 # number of equilibration frames
 eq=9999
-#eq=10000
 # distance cutoff
 cut=10
 

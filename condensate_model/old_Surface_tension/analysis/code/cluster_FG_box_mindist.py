@@ -1,18 +1,17 @@
-# Function to write a gro file of the last simulation frame. Centers the largest protein cluster in the simulation box.
+# Function to calculate density and cluster size from constant concentration simulations
 # Written by Andrew Latham
 # Note the inputs at top. These need to be customized for the system.
-# Here, we assume 100 molecules, with 2000 equilibration frames, and a residue-by-residue cutoff of 10 Ang
+# Here, we assume 32 molecules, with 9999 equilibration frames (i.e. 10000 total frames), and a minimum distance cutoff of 10 Ang
 
 # Output files:
-# cluster_size.txt - size of the largest 4 clusters, in number of molecules
-# protein_hist.txt - histogram of protein density, centered at the largest cluster
+# cluster_size_mindist.txt - size of the largest 4 clusters, in number of molecules
+# dist_from_center.txt - histogram of radial protein density, centered at the largest cluster
 
 import sys
 import os
 import math
 import numpy
 import MDAnalysis as mda
-from MDAnalysis import transformations
 from MDAnalysis.lib.distances import distance_array
 import xml.etree.ElementTree as ET
 
@@ -26,8 +25,7 @@ SYSTEM=sys.argv[1]
 # number of protein chains in the simulation box
 nchain=32
 # number of equilibration frames
-eq=9999
-#eq=10000
+eq=5000
 # distance cutoff
 cut=10
 
@@ -64,29 +62,6 @@ def wrap_coord(pos,side):
     while pos>side/2:
         pos=pos-side
     return pos
-
-def wrap_coord_Z(ts,box,nchain,pos_com,XYZ=2):
-    N = ts.n_atoms
-    atoms_chain = int(N / nchain)
-    print('Number of atoms per chain:')
-    print(atoms_chain)
-    # translate1 - places center of mass of largest cluster at 0
-    for i in range(0,nchain):
-        ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ]=ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ]-pos_com
-        COG_pos=numpy.mean(ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ])
-        while COG_pos<0:
-            # update atom positions
-            ts.positions[i*atoms_chain:(i+1)*atoms_chain, XYZ]=ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ]+box[XYZ]
-            # update COG positions
-            COG_pos=COG_pos+box[XYZ]
-        while COG_pos>box[XYZ]/2:
-            # update atom positions
-            ts.positions[i*atoms_chain:(i+1)*atoms_chain, XYZ]=ts.positions[i*atoms_chain:(i+1)*atoms_chain,XYZ]-box[XYZ]
-            # update COG positions
-            COG_pos=COG_pos-box[XYZ]
-    # translate2 - shifts the entire simulation by box / 2 (thus, the largest cluster is now centered at box/2)
-    ts.positions[:, XYZ]=ts.positions[:,XYZ]+box[XYZ]/2
-    return ts
 
 # function to find the mass of particles from the system XML file
 def find_mass(xml_file):
@@ -153,13 +128,17 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
     count=0
     path_tot_timestep = []
     cluster_size = numpy.zeros((timesteps, 4))
+    X_pos = numpy.zeros((N,timesteps))
+    Y_pos = numpy.zeros((N,timesteps))
+    Z_pos = numpy.zeros((N,timesteps))
+    overall_pos = numpy.zeros((N,timesteps))
 
 
     for ts in u1.trajectory:
+        print('frame: ' + str(ts.frame))
         if ts.frame < start:
             pass
         else:
-            print('frame: ' + str(ts.frame))
             com = numpy.zeros((nchain, 3))
             print(box)
             mass = numpy.zeros((nchain, 1))
@@ -241,6 +220,7 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
             comZ2 = (mass[:, 0] / mass_tot) * numpy.cos((com[:, 2] / box[2]) * 2 * numpy.pi)
             comZ3 = (mass[:, 0] / mass_tot) * numpy.sin((com[:, 2] / box[2]) * 2 * numpy.pi)
 
+
             # Calculate COM of cluster. Use angles to avoid issues with periodicity
             X1 = 0
             X2 = 0
@@ -249,11 +229,11 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
             Z1 = 0
             Z2 = 0
             # l_list: list of cluster sizes
-            l_list = numpy.asarray(l_list)
+            l_list=numpy.asarray(l_list)
             l_list[::-1].sort()
             l_list.resize((4))
-            cluster_size[count, :] = l_list
-            print(cluster_size[count, :])
+            cluster_size[count,:]=l_list
+            print(cluster_size[count,:])
             for i in range(0, l2):
                 index = atoms_in_cluser[i]
                 # X ----------------------------------------------------------------------------
@@ -281,34 +261,119 @@ def contact_mat(dcd_file,pdb_file,mass_xml,nchain,start,cutoff):
             thetaZ = numpy.arctan2(-1 * Z2, -1 * Z1) + numpy.pi
             Z_com = (box[2] / (2 * numpy.pi)) * thetaZ
 
+
+            #calculate wrapped list of atomistic distances to the largest cluster
+            for i in range(0,N):
+                atom = u1.atoms[i]
+                # X ----------------------------------------------------------------------------
+                X = atom.position[0]
+                X_diff = X - X_com
+                X_final = wrap_coord(X_diff, box[0])
+                X_pos[i, count] = X_final
+                # Z ----------------------------------------------------------------------------
+                Y = atom.position[1]
+                Y_diff = Y - Y_com
+                Y_final = wrap_coord(Y_diff, box[1])
+                Y_pos[i, count] = Y_final
+                # Z ----------------------------------------------------------------------------
+                Z = atom.position[2]
+                Z_diff=Z-Z_com
+                Z_final = wrap_coord(Z_diff, box[2])
+                Z_pos[i,count]=Z_final
+                # overall
+                overall_pos[i,count]=numpy.sqrt(X_final**2+Y_final**2+Z_final**2)
+
             count = count + 1
 
-    for ts in u1.trajectory:
-        if ts.frame < start:
-            pass
-        else:
-            print('frame: ' + str(ts.frame))
-            print('Writing gro file...')
-            # Add box dimensions to the universe before writing
-            transform = transformations.boxdimensions.set_dimensions(box)
-            u1.trajectory.add_transformations(transform)
-            # Wrap Z-coordinate according to the COM of the box
-            ts = wrap_coord_Z(ts, box, nchain, X_com,XYZ=0)
-            ts = wrap_coord_Z(ts, box, nchain, Y_com,XYZ=1)
-            ts = wrap_coord_Z(ts, box, nchain, Z_com)
-            # write an output of the condensate final timestep, which is now centered at the largest cluster
-            final = u1.select_atoms("all")
-            with mda.Writer("final.gro") as gro:
-                gro.write(final)
-            print('Done.')
+    # Calculate density in X, Y, and Z separately, for debugging
+    """# calculate the protein density as a function of X-position
+    nbins = 100
+    maxX = box[0] / 2
+    minX = -1 * box[0] / 2
+    dX = (maxX - minX) / nbins
+    Xhist = numpy.zeros((nbins, 2))
+    # set X-axis
+    for i in range(0, nbins):
+        Xhist[i, 0] = minX + dX * i + dX / 2
+    Xhist[0, 0] = Xhist[0, 0] - dX / 2
+    Xhist[nbins - 1, 0] = Xhist[nbins - 1, 0] + dX / 2
+    # calculate Xhistogram of atomic masses
+    for i in range(0, N):
+        for j in range(0, count):
+            bin = int((X_pos[i, j] - minX) / dX)
+            # atoms in protein
+            Xhist[bin, 1] = Xhist[bin, 1] + u1.atoms.masses[i]
 
-    return
+    # calculate the protein density as a function of Y-position
+    nbins = 100
+    maxY = box[1] / 2
+    minY = -1 * box[1] / 2
+    dY = (maxY - minY) / nbins
+    Yhist = numpy.zeros((nbins, 2))
+    # set Y-aYis
+    for i in range(0, nbins):
+        Yhist[i, 0] = minY + dY * i + dY / 2
+    Yhist[0, 0] = Yhist[0, 0] - dY / 2
+    Yhist[nbins - 1, 0] = Yhist[nbins - 1, 0] + dY / 2
+    # calculate Yhistogram of atomic masses
+    for i in range(0, N):
+        for j in range(0, count):
+            bin = int((Y_pos[i, j] - minY) / dY)
+            # atoms in protein
+            Yhist[bin, 1] = Yhist[bin, 1] + u1.atoms.masses[i]
+
+    # calculate the protein density as a function of Z-position
+    nbins = 100
+    maxZ = box[2] / 2
+    minZ = -1 * box[2] / 2
+    dZ = (maxZ - minZ) / nbins
+    Zhist = numpy.zeros((nbins, 2))
+    # set Z-axis
+    for i in range(0, nbins):
+        Zhist[i, 0] = minZ + dZ * i + dZ / 2
+    Zhist[0, 0] = Zhist[0, 0] - dZ / 2
+    Zhist[nbins - 1, 0] = Zhist[nbins - 1, 0] + dZ / 2
+    # calculate Zhistogram of atomic masses
+    for i in range(0, N):
+        for j in range(0, count):
+            bin = int((Z_pos[i, j] - minZ) / dZ)
+            # atoms in protein
+            Zhist[bin, 1] = Zhist[bin, 1] + u1.atoms.masses[i]"""
+
+    # calculate the protein density as a function of Overall-distance
+    nbins = 100
+    maxO = numpy.sqrt(box[0] ** 2 + box[1] ** 2 + box[2] ** 2) / 2
+    minO = 0
+    dO = (maxO - minO) / nbins
+    Ohist = numpy.zeros((nbins, 2))
+    # set O-axis
+    for i in range(0, nbins):
+        Ohist[i, 0] = minO + dO * i + dO / 2
+    Ohist[0, 0] = Ohist[0, 0] - dO / 2
+    Ohist[nbins - 1, 0] = Ohist[nbins - 1, 0] + dO / 2
+    # calculate Ohistogram of atomic masses
+    for i in range(0, N):
+        for j in range(0, count):
+            bin = int((overall_pos[i, j] - minO) / dO)
+            # atoms in protein
+            Ohist[bin, 1] = Ohist[bin, 1] + u1.atoms.masses[i]
+
+    # Header for output file
+    key_string = '\tr\t\t\tProtein'
+
+
+    #return cluster_size,Xhist,Yhist,Zhist,Ohist,key_string
+    return cluster_size, Ohist, key_string
 
 
 
-contact_mat(DCD,PDB,SYSTEM,nchain,eq,cut)
+cluster_size,dist,key_string=contact_mat(DCD,PDB,SYSTEM,nchain,eq,cut)
 
-# Standard outputs. Kept for debugging
-#numpy.savetxt('cluster_size_mindist.txt',cluster_size)
-#numpy.savetxt('protein_hist_mindist.txt',hist,header=key_string)
+numpy.savetxt('cluster_size_mindist.txt',cluster_size)
+"""numpy.savetxt('proteinX.txt',X,header=key_string)
+numpy.savetxt('proteinY.txt',Y,header=key_string)
+numpy.savetxt('proteinZ.txt',Z,header=key_string)"""
+numpy.savetxt('dist_from_center.txt',dist,header=key_string)
+
+
 

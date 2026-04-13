@@ -7,11 +7,6 @@ import simtk.openmm as mm
 import simtk.openmm.app as app
 import simtk.unit as unit
 
-sys.path.insert(0, "~/Postmitotic_Nup62_OpenABC")
-from openabc2.forcefields.parsers import MOFFParser, MRGdsDNAParser
-from openabc2.forcefields import MOFFMRGModel
-from openabc2.utils.pressure_reporter import StateDataReporter
-
 tot_t=1000000000
 nframes=10000
 dt=int(100000)
@@ -66,8 +61,7 @@ else:
 # add dcd. Append if available
 simulation.reporters.append(app.DCDReporter(out_dcd, dt, append=restart))
 # Append state reporter
-simulation.reporters.append(StateDataReporter('prod.csv', int(dt), step=True, time=True, potentialEnergy=True, kineticEnergy=True, temperature=True, volume=True, density=True, speed=True, pressure=True, append=True))
-simulation.reporters.append(StateDataReporter('pressure.csv', int(dt/1000), step=True, time=True, potentialEnergy=True, kineticEnergy=True, temperature=True, volume=True, density=True, speed=True, pressure=True, append=True))
+simulation.reporters.append(app.StateDataReporter('prod.csv', dt, step=True, time=True, potentialEnergy=True, temperature=True, volume=True, density=True, speed=True))
 # Append checkpoint file
 simulation.reporters.append(app.CheckpointReporter('prod.cpt', dt))
 print('Running Production...')
