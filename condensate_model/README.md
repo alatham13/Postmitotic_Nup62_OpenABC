@@ -3,4 +3,5 @@
 1. Training - simulations on 5 FG-Nup monomers, which are used to perform a 1-parameter optimization of the force field.
 2. Slab simulations - slab simulations of FG-Nups to measure their propensity to undergo phase separation.
 3. Surface_tension - simulations of FG-Nups in a constant volume box. Used to estimate the size and surface tension of condensates at NPC-specific copy numbers.
-
+4. Dilute - simulations of a single FG-Nup complexes, without other FG-Nups present
+5. HXD - modeling the behavior of FG-Nup complexes in the presense of 1,6-hexanediol (HXD)

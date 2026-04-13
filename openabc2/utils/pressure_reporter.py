@@ -9,7 +9,7 @@ Medical Research, grant U54 GM072970. See https://simtk.org.
 Portions copyright (c) 2012-2021 Stanford University and the Authors.
 Authors: Peter Eastman
 Contributors: Robert McGibbon, Zheng Gong
-Editors: Andrew Latham
+Editors: Andrew Latham (taken from: https://github.com/z-gong/mstk/blob/master/mstk/ommhelper/reporter/statedatareporter.py)
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the "Software"),
