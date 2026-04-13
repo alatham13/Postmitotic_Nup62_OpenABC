@@ -1,0 +1,2 @@
+# Surface tension from average pressure (nN / microm):
+1.436523010379050364e-03
