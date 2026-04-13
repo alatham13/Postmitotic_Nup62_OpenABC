@@ -1,0 +1,2 @@
+### This directory contains the data to process all atom simulations, coarse grained monomer simulations, and coarse grained slab simulations used to understand the behavior of FG-Nups in HXD.
+Matlab scripts in each directory plot the output data. Exp_concentrations.xlsx is used to calculate the concentration of Nup62 in the cell.
