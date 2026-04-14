@@ -86,7 +86,7 @@ legend({' 0%',' 1.5%',' 5.0%'},'location','northeast','FontSize',36,'FontName','
 axis([-250 250 0 3000]);
 legend boxoff;
 box on;
-print(fig,'eps_mM.png','-dpng');
+print(fig,'eps_uM.png','-dpng');
 
 exp=[2;2];
 edges=[-250;250];
@@ -109,7 +109,7 @@ yscale log;
 axis([-250 250 10^(-1) 10^5]);
 legend boxoff;
 box on;
-print(fig,'eps_log_mM.png','-dpng');
+print(fig,'eps_log_uM.png','-dpng');
 
 csat=mean([Nup62c09(91:100,2);Nup62c09(1:10,2)])
 
